@@ -3,7 +3,13 @@ package xiaohongshu
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
@@ -139,4 +145,116 @@ func (t *TranscribeVideoAction) extractVideoURL(page *rod.Page, feedID string) s
 	}
 
 	return result.Value.String()
+}
+
+// DownloadVideo 下载视频到指定目录
+func (t *TranscribeVideoAction) DownloadVideo(videoURL, feedID string, maxSize int, outputDir string) (string, error) {
+	if maxSize == 0 {
+		maxSize = defaultMaxVideoSize
+	}
+
+	// 如果未指定输出目录，使用系统临时目录
+	if outputDir == "" {
+		outputDir = os.TempDir()
+	}
+
+	videoPath := filepath.Join(outputDir, fmt.Sprintf("xhs_%s_%d.mp4", feedID, time.Now().Unix()))
+
+	t.logger.WithField("url", videoURL).Info("开始下载视频")
+
+	// 创建 HTTP 客户端，设置超时
+	client := &http.Client{
+		Timeout: 10 * time.Minute,
+	}
+
+	resp, err := client.Get(videoURL)
+	if err != nil {
+		return "", fmt.Errorf("下载视频失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("下载视频失败，状态码: %d", resp.StatusCode)
+	}
+
+	// 检查 Content-Length
+	if resp.ContentLength > int64(maxSize) {
+		return "", fmt.Errorf("视频文件过大: %d bytes > %d bytes limit", resp.ContentLength, maxSize)
+	}
+
+	// 创建文件
+	file, err := os.Create(videoPath)
+	if err != nil {
+		return "", fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	defer file.Close()
+
+	// 流式下载并检查大小
+	written, err := io.Copy(file, &sizeLimiter{reader: resp.Body, limit: int64(maxSize)})
+	if err != nil {
+		os.Remove(videoPath)
+		return "", fmt.Errorf("保存视频失败: %w", err)
+	}
+
+	t.logger.WithField("size", written).Info("视频下载完成")
+	return videoPath, nil
+}
+
+// sizeLimiter 用于限制下载大小
+type sizeLimiter struct {
+	reader io.Reader
+	read   int64
+	limit  int64
+}
+
+func (sl *sizeLimiter) Read(p []byte) (n int, err error) {
+	n, err = sl.reader.Read(p)
+	sl.read += int64(n)
+	if sl.read > sl.limit {
+		return 0, fmt.Errorf("文件大小超过限制: %d", sl.limit)
+	}
+	return n, err
+}
+
+// ExtractAudio 使用 ffmpeg 从视频中提取音频
+func (t *TranscribeVideoAction) ExtractAudio(videoPath, feedID string, outputDir string) (string, error) {
+	if outputDir == "" {
+		outputDir = os.TempDir()
+	}
+	audioPath := filepath.Join(outputDir, fmt.Sprintf("xhs_%s_%d.mp3", feedID, time.Now().Unix()))
+
+	t.logger.Info("开始提取音频")
+
+	// 使用 ffmpeg 提取音频：转为单声道 MP3，64k 码率
+	cmd := exec.Command("ffmpeg",
+		"-y",            // 覆盖输出文件
+		"-i", videoPath, // 输入文件
+		"-vn",         // 禁用视频
+		"-b:a", "64k", // 音频码率 64k
+		"-ac", "1", // 单声道
+		"-ar", "16000", // 采样率 16kHz (Whisper 推荐)
+		audioPath, // 输出文件
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("提取音频失败: %w, output: %s", err, string(output))
+	}
+
+	// 验证音频文件
+	if _, err := os.Stat(audioPath); err != nil {
+		return "", fmt.Errorf("音频文件未生成: %w", err)
+	}
+
+	t.logger.WithField("audioPath", audioPath).Info("音频提取完成")
+	return audioPath, nil
+}
+
+// CheckFFmpeg 检查 ffmpeg 是否安装
+func CheckFFmpeg() error {
+	cmd := exec.Command("ffmpeg", "-version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg 未安装或未在 PATH 中，请先安装 ffmpeg")
+	}
+	return nil
 }
