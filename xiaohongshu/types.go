@@ -168,3 +168,27 @@ type UserInteractions struct {
 	Name  string `json:"name"`  // 关注 粉丝 获赞与收藏
 	Count string `json:"count"` // 数量
 }
+
+// VideoInfo 视频信息
+type VideoInfo struct {
+	Title    string
+	Author   string
+	Duration int    // 时长（秒）
+	VideoURL string // 视频 CDN 地址
+}
+
+// TranscribeResult 转录结果
+type TranscribeResult struct {
+	Title         string
+	Author        string
+	Duration      int
+	Transcript    string
+	Summary       string
+	SourceURL     string
+	TranscribedAt string
+}
+
+// IsVideoNote 检查笔记是否为视频类型
+func IsVideoNote(noteType string, video *Video) bool {
+	return noteType == "video" && video != nil
+}
