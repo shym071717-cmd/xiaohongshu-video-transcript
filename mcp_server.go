@@ -100,6 +100,15 @@ type FavoriteFeedArgs struct {
 	Unfavorite bool   `json:"unfavorite,omitempty" jsonschema:"是否取消收藏，true为取消收藏，false或未设置则为收藏"`
 }
 
+// TranscribeVideoArgs 视频转录参数
+type TranscribeVideoArgs struct {
+	FeedID      string `json:"feed_id" jsonschema:"小红书笔记ID，从Feed列表获取"`
+	XsecToken   string `json:"xsec_token" jsonschema:"访问令牌，从Feed列表的xsecToken字段获取"`
+	Language    string `json:"language,omitempty" jsonschema:"语音识别语言，可选值：zh(中文)、en(英文)、auto(自动检测，默认)"`
+	WithSummary bool   `json:"with_summary,omitempty" jsonschema:"是否生成AI摘要，默认为true"`
+	MaxFileSize int    `json:"max_file_size,omitempty" jsonschema:"最大允许的视频文件大小(MB)，默认500MB"`
+}
+
 // InitMCPServer 初始化 MCP Server
 func InitMCPServer(appServer *AppServer) *mcp.Server {
 	// 创建 MCP Server
@@ -443,7 +452,31 @@ func registerTools(server *mcp.Server, appServer *AppServer) {
 		}),
 	)
 
-	logrus.Infof("Registered %d MCP tools", 13)
+	// 工具 14: 视频转录
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "transcribe_video",
+			Description: "转录小红书视频笔记的语音内容为文本，并生成AI摘要",
+			Annotations: &mcp.ToolAnnotations{
+				Title:           "Transcribe Video",
+				ReadOnlyHint:    true,
+				DestructiveHint: boolPtr(false),
+			},
+		},
+		withPanicRecovery("transcribe_video", func(ctx context.Context, req *mcp.CallToolRequest, args TranscribeVideoArgs) (*mcp.CallToolResult, any, error) {
+			argsMap := map[string]interface{}{
+				"feed_id":       args.FeedID,
+				"xsec_token":    args.XsecToken,
+				"language":      args.Language,
+				"with_summary":  args.WithSummary,
+				"max_file_size": args.MaxFileSize,
+			}
+			result := appServer.handleTranscribeVideo(ctx, argsMap)
+			return convertToMCPResult(result), nil, nil
+		}),
+	)
+
+	logrus.Infof("Registered %d MCP tools", 14)
 }
 
 // convertToMCPResult 将自定义的 MCPToolResult 转换为官方 SDK 的格式

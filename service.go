@@ -575,6 +575,41 @@ func withBrowserPage(fn func(*rod.Page) error) error {
 	return fn(page)
 }
 
+// TranscribeVideo 转录视频
+func (s *XiaohongshuService) TranscribeVideo(ctx context.Context, feedID, xsecToken, language string, withSummary bool, maxFileSize int) (*xiaohongshu.TranscribeResult, error) {
+	b := newBrowser()
+	defer b.Close()
+
+	page := b.NewPage()
+	defer page.Close()
+
+	// 导航到视频页面
+	action := xiaohongshu.NewFeedDetailAction(page)
+	if _, err := action.GetFeedDetailWithConfig(ctx, feedID, xsecToken, false, xiaohongshu.DefaultCommentLoadConfig()); err != nil {
+		return nil, fmt.Errorf("访问视频页面失败: %w", err)
+	}
+
+	// 创建转录 action
+	transcriptionConfig := configs.DefaultTranscriptionConfig()
+	transcribeAction := xiaohongshu.NewTranscribeVideoAction(transcriptionConfig, logrus.StandardLogger())
+
+	// 构建参数
+	args := xiaohongshu.TranscribeVideoArgs{
+		FeedID:      feedID,
+		MaxFileSize: maxFileSize,
+		Language:    language,
+		WithSummary: withSummary,
+	}
+
+	// 执行转录
+	result, err := transcribeAction.Transcribe(page, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // GetMyProfile 获取当前登录用户的个人信息
 func (s *XiaohongshuService) GetMyProfile(ctx context.Context) (*UserProfileResponse, error) {
 	var result *xiaohongshu.UserProfileResponse

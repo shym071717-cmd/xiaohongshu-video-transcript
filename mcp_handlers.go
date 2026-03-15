@@ -669,6 +669,76 @@ func (s *AppServer) handlePostComment(ctx context.Context, args map[string]inter
 	}
 }
 
+// handleTranscribeVideo 处理视频转录
+func (s *AppServer) handleTranscribeVideo(ctx context.Context, args map[string]interface{}) *MCPToolResult {
+	logrus.Info("MCP: 转录视频")
+
+	// 解析参数
+	feedID, ok := args["feed_id"].(string)
+	if !ok || feedID == "" {
+		return &MCPToolResult{
+			Content: []MCPContent{{
+				Type: "text",
+				Text: "转录视频失败: 缺少feed_id参数",
+			}},
+			IsError: true,
+		}
+	}
+
+	xsecToken, ok := args["xsec_token"].(string)
+	if !ok || xsecToken == "" {
+		return &MCPToolResult{
+			Content: []MCPContent{{
+				Type: "text",
+				Text: "转录视频失败: 缺少xsec_token参数",
+			}},
+			IsError: true,
+		}
+	}
+
+	// 可选参数
+	language, _ := args["language"].(string)
+	if language == "" {
+		language = "auto"
+	}
+
+	withSummary := true
+	if v, ok := args["with_summary"].(bool); ok {
+		withSummary = v
+	}
+
+	maxFileSize := 500
+	if v, ok := args["max_file_size"].(float64); ok && v > 0 {
+		maxFileSize = int(v)
+	}
+
+	logrus.Infof("MCP: 转录视频 - Feed ID: %s, Language: %s, WithSummary: %v, MaxFileSize: %dMB",
+		feedID, language, withSummary, maxFileSize)
+
+	// 执行转录
+	result, err := s.xiaohongshuService.TranscribeVideo(ctx, feedID, xsecToken, language, withSummary, maxFileSize)
+	if err != nil {
+		return &MCPToolResult{
+			Content: []MCPContent{{
+				Type: "text",
+				Text: "转录视频失败: " + err.Error(),
+			}},
+			IsError: true,
+		}
+	}
+
+	// 格式化结果
+	transcribeAction := xiaohongshu.NewTranscribeVideoAction(nil, logrus.StandardLogger())
+	formattedResult := transcribeAction.FormatResult(result)
+
+	return &MCPToolResult{
+		Content: []MCPContent{{
+			Type: "text",
+			Text: formattedResult,
+		}},
+	}
+}
+
 // handleReplyComment 处理回复评论
 func (s *AppServer) handleReplyComment(ctx context.Context, args map[string]interface{}) *MCPToolResult {
 	logrus.Info("MCP: 回复评论")
