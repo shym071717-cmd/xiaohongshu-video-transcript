@@ -4,9 +4,18 @@ import (
 	"flag"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
 )
+
+func init() {
+	// 加载 .env 文件（如果存在）
+	if err := godotenv.Load(); err != nil {
+		// .env 文件不存在也没关系，使用系统环境变量
+		logrus.Debug("未找到 .env 文件，使用系统环境变量")
+	}
+}
 
 func main() {
 	var (
