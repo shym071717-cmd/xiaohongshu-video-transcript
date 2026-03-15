@@ -120,35 +120,40 @@ func (t *TranscribeVideoAction) ExtractVideoInfo(page *rod.Page, feedID string) 
 
 // extractVideoURL 提取视频 CDN 地址
 func (t *TranscribeVideoAction) extractVideoURL(page *rod.Page, feedID string) string {
-	// 尝试从页面数据中提取视频 URL
+	// 尝试从页面数据中提取视频 URL - 直接获取 masterUrl 字符串
 	result, err := page.Eval(`(feedID) => {
 		const state = window.__INITIAL_STATE__;
 		if (state && state.note && state.note.noteDetailMap) {
 			const note = state.note.noteDetailMap[feedID];
 			if (note && note.note && note.note.video) {
 				const video = note.note.video;
-				// 尝试不同的视频地址字段
+
+				// 方法1: 从 videoConsumer.originVideoKey.masterUrl 获取
 				if (video.videoConsumer && video.videoConsumer.originVideoKey) {
-					// originVideoKey 可能是对象，尝试获取 masterUrl
 					const key = video.videoConsumer.originVideoKey;
 					if (typeof key === 'string') {
 						return key;
 					}
-					if (key && key.masterUrl) {
+					if (key && key.masterUrl && typeof key.masterUrl === 'string') {
 						return key.masterUrl;
 					}
 				}
-				if (video.videoConsumer && video.videoConsumer.url) {
+
+				// 方法2: 从 videoConsumer.url 获取
+				if (video.videoConsumer && video.videoConsumer.url && typeof video.videoConsumer.url === 'string') {
 					return video.videoConsumer.url;
 				}
-				if (video.media && video.media.stream && video.media.stream.h264) {
+
+				// 方法3: 从 media.stream.h264 获取
+				if (video.media && video.media.stream && video.media.stream.h264 && video.media.stream.h264.length > 0) {
 					return video.media.stream.h264[0];
 				}
-				// 尝试从 videoConsumer 的响应中获取
-				if (video.videoConsumer && video.videoConsumer.response) {
-					const resp = video.videoConsumer.response;
-					if (resp.data && resp.data[0] && resp.data[0].masterUrl) {
-						return resp.data[0].masterUrl;
+
+				// 方法4: 从 videoConsumer.response.data[0].masterUrl 获取
+				if (video.videoConsumer && video.videoConsumer.response && video.videoConsumer.response.data) {
+					const data = video.videoConsumer.response.data;
+					if (Array.isArray(data) && data.length > 0 && data[0].masterUrl) {
+						return data[0].masterUrl;
 					}
 				}
 			}
@@ -161,7 +166,20 @@ func (t *TranscribeVideoAction) extractVideoURL(page *rod.Page, feedID string) s
 		return ""
 	}
 
-	return result.Value.String()
+	// 返回值应该是字符串
+	url := result.Value.String()
+	if url == "" || url == "null" || url == "undefined" {
+		t.logger.Error("提取的视频URL为空")
+		return ""
+	}
+
+	// 检查返回的是否是对象（以 { 开头）
+	if len(url) > 0 && url[0] == '{' {
+		t.logger.WithField("url", url).Error("提取的视频URL是对象而非字符串")
+		return ""
+	}
+
+	return url
 }
 
 // DownloadVideo 下载视频到指定目录
