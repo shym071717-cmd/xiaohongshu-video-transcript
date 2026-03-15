@@ -1,14 +1,17 @@
 package xiaohongshu
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -257,4 +260,202 @@ func CheckFFmpeg() error {
 		return fmt.Errorf("ffmpeg 未安装或未在 PATH 中，请先安装 ffmpeg")
 	}
 	return nil
+}
+
+// SplitAudio 将大音频文件切片
+func (t *TranscribeVideoAction) SplitAudio(audioPath string) ([]string, error) {
+	// 获取音频文件信息
+	info, err := os.Stat(audioPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果文件小于 20MB，不需要切片
+	if info.Size() <= defaultMaxAudioChunk {
+		return []string{audioPath}, nil
+	}
+
+	t.logger.WithField("size", info.Size()).Info("音频文件较大，进行切片处理")
+
+	// 使用 ffprobe 获取音频时长
+	duration, err := t.getAudioDuration(audioPath)
+	if err != nil {
+		return nil, fmt.Errorf("获取音频时长失败: %w", err)
+	}
+
+	// 计算每个切片的时长（目标每个切片约 15MB）
+	chunkDuration := int(duration * int(defaultMaxAudioChunk) / int(info.Size()))
+	if chunkDuration < 30 {
+		chunkDuration = 30 // 最少 30 秒
+	}
+
+	var chunks []string
+	tmpDir := os.TempDir()
+
+	for start := 0; start < duration; start += chunkDuration {
+		end := start + chunkDuration
+		if end > duration {
+			end = duration
+		}
+
+		chunkPath := filepath.Join(tmpDir, fmt.Sprintf("xhs_chunk_%d_%d.mp3", start, time.Now().Unix()))
+
+		// 使用 ffmpeg 切片
+		cmd := exec.Command("ffmpeg",
+			"-y",
+			"-i", audioPath,
+			"-ss", fmt.Sprintf("%d", start),
+			"-t", fmt.Sprintf("%d", end-start),
+			"-c", "copy",
+			chunkPath,
+		)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("音频切片失败: %w, output: %s", err, string(output))
+		}
+
+		chunks = append(chunks, chunkPath)
+	}
+
+	t.logger.WithField("chunks", len(chunks)).Info("音频切片完成")
+	return chunks, nil
+}
+
+// getAudioDuration 获取音频时长（秒）
+func (t *TranscribeVideoAction) getAudioDuration(audioPath string) (int, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		audioPath,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	var duration float64
+	fmt.Sscanf(string(output), "%f", &duration)
+	return int(duration), nil
+}
+
+// TranscribeAudio 使用 Groq Whisper API 转录音频
+func (t *TranscribeVideoAction) TranscribeAudio(audioPath, language string) (string, error) {
+	apiKey := t.config.GetGroqAPIKey()
+	if apiKey == "" {
+		return "", fmt.Errorf("Groq API Key 未配置")
+	}
+
+	// 检查并切分音频
+	chunks, err := t.SplitAudio(audioPath)
+	if err != nil {
+		return "", fmt.Errorf("音频切片失败: %w", err)
+	}
+
+	var transcripts []string
+
+	for i, chunk := range chunks {
+		t.logger.WithField("chunk", i+1).WithField("total", len(chunks)).Info("转录音频片段")
+
+		transcript, err := t.callGroqWhisperWithRetry(chunk, apiKey, language)
+		if err != nil {
+			return "", fmt.Errorf("转录音频片段 %d 失败: %w", i+1, err)
+		}
+
+		transcripts = append(transcripts, transcript)
+
+		// 删除临时切片文件（如果不是原文件）
+		if chunk != audioPath {
+			os.Remove(chunk)
+		}
+	}
+
+	return strings.Join(transcripts, "\n"), nil
+}
+
+// callGroqWhisperWithRetry 带重试的 Groq API 调用
+func (t *TranscribeVideoAction) callGroqWhisperWithRetry(audioPath, apiKey, language string) (string, error) {
+	maxRetries := 3
+	baseDelay := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		transcript, err := t.callGroqWhisper(audioPath, apiKey, language)
+		if err == nil {
+			return transcript, nil
+		}
+
+		// 检查是否需要重试
+		if i < maxRetries-1 {
+			delay := baseDelay * time.Duration(1<<i) // 指数退避: 1s, 2s, 4s
+			t.logger.WithError(err).WithField("retry", i+1).WithField("delay", delay).Warn("转录失败，准备重试")
+			time.Sleep(delay)
+			continue
+		}
+
+		return "", err
+	}
+
+	return "", fmt.Errorf("超过最大重试次数")
+}
+
+// callGroqWhisper 调用 Groq Whisper API
+func (t *TranscribeVideoAction) callGroqWhisper(audioPath, apiKey, language string) (string, error) {
+	// 打开音频文件
+	file, err := os.Open(audioPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// 构建 multipart form
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+
+	// 添加文件
+	fw, err := w.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(fw, file); err != nil {
+		return "", err
+	}
+
+	// 添加其他字段
+	w.WriteField("model", "whisper-large-v3")
+	if language != "" && language != "auto" {
+		w.WriteField("language", language)
+	}
+	w.WriteField("response_format", "text")
+
+	w.Close()
+
+	// 创建请求
+	req, err := http.NewRequest("POST", groqWhisperAPIEndpoint, &b)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	// 发送请求
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API 错误 (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return string(body), nil
 }
