@@ -129,13 +129,27 @@ func (t *TranscribeVideoAction) extractVideoURL(page *rod.Page, feedID string) s
 				const video = note.note.video;
 				// 尝试不同的视频地址字段
 				if (video.videoConsumer && video.videoConsumer.originVideoKey) {
-					return video.videoConsumer.originVideoKey;
+					// originVideoKey 可能是对象，尝试获取 masterUrl
+					const key = video.videoConsumer.originVideoKey;
+					if (typeof key === 'string') {
+						return key;
+					}
+					if (key && key.masterUrl) {
+						return key.masterUrl;
+					}
 				}
 				if (video.videoConsumer && video.videoConsumer.url) {
 					return video.videoConsumer.url;
 				}
-				if (video.media && video.media.stream) {
+				if (video.media && video.media.stream && video.media.stream.h264) {
 					return video.media.stream.h264[0];
+				}
+				// 尝试从 videoConsumer 的响应中获取
+				if (video.videoConsumer && video.videoConsumer.response) {
+					const resp = video.videoConsumer.response;
+					if (resp.data && resp.data[0] && resp.data[0].masterUrl) {
+						return resp.data[0].masterUrl;
+					}
 				}
 			}
 		}
