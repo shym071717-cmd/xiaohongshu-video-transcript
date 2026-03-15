@@ -459,3 +459,191 @@ func (t *TranscribeVideoAction) callGroqWhisper(audioPath, apiKey, language stri
 
 	return string(body), nil
 }
+
+// GenerateSummary 使用 LLM 生成摘要
+func (t *TranscribeVideoAction) GenerateSummary(transcript, title string) (string, error) {
+	provider, apiKey, model, baseURL := t.config.GetLLMConfig()
+
+	if apiKey == "" {
+		return "", fmt.Errorf("LLM API Key 未配置")
+	}
+
+	prompt := buildSummaryPrompt(title, transcript)
+
+	switch provider {
+	case configs.LLMProviderMinimax:
+		return t.callMinimaxAPI(apiKey, model, baseURL, prompt)
+	case configs.LLMProviderClaude:
+		return t.callClaudeAPI(apiKey, model, baseURL, prompt)
+	case configs.LLMProviderOpenAI:
+		return t.callOpenAIAPI(apiKey, model, baseURL, prompt)
+	default:
+		return "", fmt.Errorf("不支持的 LLM 提供商: %s", provider)
+	}
+}
+
+// buildSummaryPrompt 构建摘要提示词
+func buildSummaryPrompt(title, transcript string) string {
+	return fmt.Sprintf(`请为以下视频内容生成摘要：
+
+视频标题: %s
+
+转录内容:
+%s
+
+请生成以下格式的摘要:
+### 核心观点
+(一句话总结视频核心内容)
+
+### 关键要点
+1. (要点1)
+2. (要点2)
+3. (要点3)
+`, title, transcript)
+}
+
+// Minimax API 请求和响应结构
+type minimaxRequest struct {
+	Model       string           `json:"model"`
+	Messages    []minimaxMessage `json:"messages"`
+	Temperature float64          `json:"temperature"`
+	MaxTokens   int              `json:"max_tokens"`
+}
+
+type minimaxMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type minimaxResponse struct {
+	Choices []struct {
+		Message minimaxMessage `json:"message"`
+	} `json:"choices"`
+	BaseResp struct {
+		StatusMsg  string `json:"status_msg"`
+		StatusCode int    `json:"status_code"`
+	} `json:"base_resp"`
+}
+
+// callMinimaxAPI 调用 Minimax API
+func (t *TranscribeVideoAction) callMinimaxAPI(apiKey, model, baseURL, prompt string) (string, error) {
+	if baseURL == "" {
+		baseURL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
+	}
+
+	reqBody := minimaxRequest{
+		Model: model,
+		Messages: []minimaxMessage{
+			{Role: "system", Content: "你是一个专业的视频内容摘要助手。"},
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.7,
+		MaxTokens:   2000,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var result minimaxResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+
+	if result.BaseResp.StatusCode != 0 {
+		return "", fmt.Errorf("Minimax API 错误: %s", result.BaseResp.StatusMsg)
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("Minimax API 返回空结果")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
+// callClaudeAPI 调用 Claude API
+func (t *TranscribeVideoAction) callClaudeAPI(apiKey, model, baseURL, prompt string) (string, error) {
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com/v1/messages"
+	}
+
+	reqBody := map[string]interface{}{
+		"model":      model,
+		"max_tokens": 2000,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Claude API 错误 (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+
+	if len(result.Content) == 0 {
+		return "", fmt.Errorf("Claude API 返回空结果")
+	}
+
+	return result.Content[0].Text, nil
+}
+
+// callOpenAIAPI 调用 OpenAI API（占位符）
+func (t *TranscribeVideoAction) callOpenAIAPI(apiKey, model, baseURL, prompt string) (string, error) {
+	return "", fmt.Errorf("OpenAI API 支持尚未实现")
+}
