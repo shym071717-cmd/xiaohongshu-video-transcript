@@ -647,3 +647,110 @@ func (t *TranscribeVideoAction) callClaudeAPI(apiKey, model, baseURL, prompt str
 func (t *TranscribeVideoAction) callOpenAIAPI(apiKey, model, baseURL, prompt string) (string, error) {
 	return "", fmt.Errorf("OpenAI API 支持尚未实现")
 }
+
+// Transcribe 执行完整的视频转录流程
+func (t *TranscribeVideoAction) Transcribe(page *rod.Page, args TranscribeVideoArgs) (*TranscribeResult, error) {
+	// 参数校验
+	if err := validateFeedID(args.FeedID); err != nil {
+		return nil, err
+	}
+
+	// 创建临时目录
+	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("xhs_transcribe_%s_%d", args.FeedID, time.Now().Unix()))
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建临时目录失败: %w", err)
+	}
+
+	// 确保清理临时文件
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.logger.WithError(err).Warn("清理临时文件失败")
+		}
+	}()
+
+	result := &TranscribeResult{
+		SourceURL:     fmt.Sprintf("https://www.xiaohongshu.com/explore/%s", args.FeedID),
+		TranscribedAt: time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	// Step 1: 获取视频信息
+	t.logger.Info("Step 1: 获取视频信息")
+	videoInfo, err := t.ExtractVideoInfo(page, args.FeedID)
+	if err != nil {
+		return nil, fmt.Errorf("获取视频信息失败: %w", err)
+	}
+	result.Title = videoInfo.Title
+	result.Author = videoInfo.Author
+	result.Duration = videoInfo.Duration
+
+	// Step 2: 下载视频（直接下载到临时目录）
+	t.logger.Info("Step 2: 下载视频")
+	videoPath, err := t.DownloadVideo(videoInfo.VideoURL, args.FeedID, args.MaxFileSize, tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("下载视频失败: %w", err)
+	}
+
+	// Step 3: 提取音频（直接输出到临时目录）
+	t.logger.Info("Step 3: 提取音频")
+	audioPath, err := t.ExtractAudio(videoPath, args.FeedID, tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("提取音频失败: %w", err)
+	}
+
+	// Step 4: 语音识别
+	t.logger.Info("Step 4: 语音识别")
+	transcript, err := t.TranscribeAudio(audioPath, args.Language)
+	if err != nil {
+		return nil, fmt.Errorf("语音识别失败: %w", err)
+	}
+	result.Transcript = transcript
+
+	// Step 5: AI 摘要（可选）
+	if args.WithSummary {
+		t.logger.Info("Step 5: 生成AI摘要")
+		summary, err := t.GenerateSummary(transcript, videoInfo.Title)
+		if err != nil {
+			t.logger.WithError(err).Warn("生成摘要失败，仅返回转录文本")
+			result.Summary = "（摘要生成失败: " + err.Error() + "）"
+		} else {
+			result.Summary = summary
+		}
+	}
+
+	return result, nil
+}
+
+// FormatResult 将结果格式化为 Markdown
+func (t *TranscribeVideoAction) FormatResult(result *TranscribeResult) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("# %s\n\n", result.Title))
+	sb.WriteString(fmt.Sprintf("**来源**: %s\n", result.SourceURL))
+	sb.WriteString(fmt.Sprintf("**作者**: @%s\n", result.Author))
+	sb.WriteString(fmt.Sprintf("**时长**: %s\n", formatDuration(result.Duration)))
+	sb.WriteString(fmt.Sprintf("**转录时间**: %s\n", result.TranscribedAt))
+	sb.WriteString("**语音识别**: Groq Whisper (whisper-large-v3)\n")
+	sb.WriteString("\n---\n")
+
+	if result.Summary != "" {
+		sb.WriteString("\n## 内容摘要\n\n")
+		sb.WriteString(result.Summary)
+		sb.WriteString("\n\n---\n")
+	}
+
+	sb.WriteString("\n## 完整转录\n\n")
+	sb.WriteString(result.Transcript)
+
+	return sb.String()
+}
+
+// formatDuration 格式化时长
+func formatDuration(seconds int) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%d秒", seconds)
+	}
+	if seconds < 3600 {
+		return fmt.Sprintf("%d分%d秒", seconds/60, seconds%60)
+	}
+	return fmt.Sprintf("%d小时%d分%d秒", seconds/3600, (seconds%3600)/60, seconds%60)
+}
