@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
 
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
@@ -31,18 +31,29 @@ var validFeedIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // TranscribeVideoAction 视频转录操作
 type TranscribeVideoAction struct {
-	config *configs.TranscriptionConfig
-	logger *logrus.Logger
+	config           *configs.TranscriptionConfig
+	downloaderConfig *configs.XHSDownloaderConfig
+	logger           *logrus.Logger
+	downloaderClient *XHSDownloaderClient
 }
 
 // NewTranscribeVideoAction 创建转录操作实例
-func NewTranscribeVideoAction(config *configs.TranscriptionConfig, logger *logrus.Logger) *TranscribeVideoAction {
+func NewTranscribeVideoAction(config *configs.TranscriptionConfig, downloaderConfig *configs.XHSDownloaderConfig, logger *logrus.Logger) *TranscribeVideoAction {
 	if config == nil {
 		config = configs.DefaultTranscriptionConfig()
 	}
+	if downloaderConfig == nil {
+		downloaderConfig = configs.DefaultXHSDownloaderConfig()
+	}
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
+
 	return &TranscribeVideoAction{
-		config: config,
-		logger: logger,
+		config:           config,
+		downloaderConfig: downloaderConfig,
+		logger:           logger,
+		downloaderClient: NewXHSDownloaderClient(downloaderConfig, logger),
 	}
 }
 
@@ -54,132 +65,22 @@ func validateFeedID(feedID string) error {
 	return nil
 }
 
-// ExtractVideoInfo 从小红书页面提取视频信息
-func (t *TranscribeVideoAction) ExtractVideoInfo(page *rod.Page, feedID string) (*VideoInfo, error) {
+// ExtractVideoInfo 通过 XHS-Downloader API 获取视频信息
+func (t *TranscribeVideoAction) ExtractVideoInfo(feedID, xsecToken string) (*VideoInfo, error) {
 	if err := validateFeedID(feedID); err != nil {
 		return nil, err
 	}
 
-	// 从 window.__INITIAL_STATE__ 提取笔记数据
-	result, err := page.Eval(`(feedID) => {
-		if (window.__INITIAL_STATE__ &&
-			window.__INITIAL_STATE__.note &&
-			window.__INITIAL_STATE__.note.noteDetailMap) {
-			const note = window.__INITIAL_STATE__.note.noteDetailMap[feedID];
-			if (note) {
-				return JSON.stringify(note);
-			}
-		}
-		return "";
-	}`, feedID)
+	// 构建小红书作品链接
+	xiaohongshuURL := fmt.Sprintf("https://www.xiaohongshu.com/explore/%s?xsec_token=%s", feedID, xsecToken)
 
+	// 使用 XHS-Downloader 客户端获取视频信息
+	videoInfo, err := t.downloaderClient.GetVideoInfo(xiaohongshuURL)
 	if err != nil {
-		return nil, fmt.Errorf("提取页面数据失败: %w", err)
+		return nil, fmt.Errorf("获取视频信息失败: %w", err)
 	}
 
-	evalResult := result.Value.String()
-
-	if evalResult == "" {
-		return nil, fmt.Errorf("无法获取笔记数据，请检查 feed_id 和登录状态")
-	}
-
-	// 解析 JSON 数据
-	var noteDetail struct {
-		Note struct {
-			Type  string `json:"type"`
-			Title string `json:"title"`
-			Video *Video `json:"video"`
-			User  struct {
-				Nickname string `json:"nickname"`
-			} `json:"user"`
-		} `json:"note"`
-	}
-
-	if err := json.Unmarshal([]byte(evalResult), &noteDetail); err != nil {
-		return nil, fmt.Errorf("解析笔记数据失败: %w", err)
-	}
-
-	// 验证是否为视频笔记
-	if !IsVideoNote(noteDetail.Note.Type, noteDetail.Note.Video) {
-		return nil, fmt.Errorf("该笔记不是视频笔记，无法转录")
-	}
-
-	// 提取视频 URL
-	videoURL := t.extractVideoURL(page, feedID)
-	if videoURL == "" {
-		return nil, fmt.Errorf("无法获取视频下载地址")
-	}
-
-	return &VideoInfo{
-		Title:    noteDetail.Note.Title,
-		Author:   noteDetail.Note.User.Nickname,
-		Duration: noteDetail.Note.Video.Capa.Duration,
-		VideoURL: videoURL,
-	}, nil
-}
-
-// extractVideoURL 提取视频 CDN 地址
-func (t *TranscribeVideoAction) extractVideoURL(page *rod.Page, feedID string) string {
-	// 尝试从页面数据中提取视频 URL - 直接获取 masterUrl 字符串
-	result, err := page.Eval(`(feedID) => {
-		const state = window.__INITIAL_STATE__;
-		if (state && state.note && state.note.noteDetailMap) {
-			const note = state.note.noteDetailMap[feedID];
-			if (note && note.note && note.note.video) {
-				const video = note.note.video;
-
-				// 方法1: 从 videoConsumer.originVideoKey.masterUrl 获取
-				if (video.videoConsumer && video.videoConsumer.originVideoKey) {
-					const key = video.videoConsumer.originVideoKey;
-					if (typeof key === 'string') {
-						return key;
-					}
-					if (key && key.masterUrl && typeof key.masterUrl === 'string') {
-						return key.masterUrl;
-					}
-				}
-
-				// 方法2: 从 videoConsumer.url 获取
-				if (video.videoConsumer && video.videoConsumer.url && typeof video.videoConsumer.url === 'string') {
-					return video.videoConsumer.url;
-				}
-
-				// 方法3: 从 media.stream.h264 获取
-				if (video.media && video.media.stream && video.media.stream.h264 && video.media.stream.h264.length > 0) {
-					return video.media.stream.h264[0];
-				}
-
-				// 方法4: 从 videoConsumer.response.data[0].masterUrl 获取
-				if (video.videoConsumer && video.videoConsumer.response && video.videoConsumer.response.data) {
-					const data = video.videoConsumer.response.data;
-					if (Array.isArray(data) && data.length > 0 && data[0].masterUrl) {
-						return data[0].masterUrl;
-					}
-				}
-			}
-		}
-		return "";
-	}`, feedID)
-
-	if err != nil {
-		t.logger.WithError(err).Error("提取视频URL失败")
-		return ""
-	}
-
-	// 返回值应该是字符串
-	url := result.Value.String()
-	if url == "" || url == "null" || url == "undefined" {
-		t.logger.Error("提取的视频URL为空")
-		return ""
-	}
-
-	// 检查返回的是否是对象（以 { 开头）
-	if len(url) > 0 && url[0] == '{' {
-		t.logger.WithField("url", url).Error("提取的视频URL是对象而非字符串")
-		return ""
-	}
-
-	return url
+	return videoInfo, nil
 }
 
 // DownloadVideo 下载视频到指定目录
@@ -197,10 +98,8 @@ func (t *TranscribeVideoAction) DownloadVideo(videoURL, feedID string, maxSize i
 
 	t.logger.WithField("url", videoURL).Info("开始下载视频")
 
-	// 创建 HTTP 客户端，设置超时
-	client := &http.Client{
-		Timeout: 10 * time.Minute,
-	}
+	// 创建支持代理的 HTTP 客户端，设置超时
+	client := t.createHTTPClient(10 * time.Minute)
 
 	resp, err := client.Get(videoURL)
 	if err != nil {
@@ -431,6 +330,27 @@ func (t *TranscribeVideoAction) callGroqWhisperWithRetry(audioPath, apiKey, lang
 	return "", fmt.Errorf("超过最大重试次数")
 }
 
+// createHTTPClient 创建支持代理的 HTTP 客户端
+func (t *TranscribeVideoAction) createHTTPClient(timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+
+	// 检查是否配置了代理（中国大陆访问 Groq 等需要）
+	proxyURL := t.config.GetHTTPProxy()
+	if proxyURL != "" {
+		parsedURL, err := url.Parse(proxyURL)
+		if err != nil {
+			t.logger.WithError(err).Warn("代理地址解析失败，将不使用代理")
+		} else {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(parsedURL),
+			}
+			t.logger.WithField("proxy", proxyURL).Debug("使用 HTTP 代理")
+		}
+	}
+
+	return client
+}
+
 // callGroqWhisper 调用 Groq Whisper API
 func (t *TranscribeVideoAction) callGroqWhisper(audioPath, apiKey, language string) (string, error) {
 	// 打开音频文件
@@ -471,8 +391,8 @@ func (t *TranscribeVideoAction) callGroqWhisper(audioPath, apiKey, language stri
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	// 发送请求
-	client := &http.Client{Timeout: 2 * time.Minute}
+	// 创建 HTTP 客户端（支持代理）
+	client := t.createHTTPClient(2 * time.Minute)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -681,7 +601,7 @@ func (t *TranscribeVideoAction) callOpenAIAPI(apiKey, model, baseURL, prompt str
 }
 
 // Transcribe 执行完整的视频转录流程
-func (t *TranscribeVideoAction) Transcribe(page *rod.Page, args TranscribeVideoArgs) (*TranscribeResult, error) {
+func (t *TranscribeVideoAction) Transcribe(args TranscribeVideoArgs) (*TranscribeResult, error) {
 	// 参数校验
 	if err := validateFeedID(args.FeedID); err != nil {
 		return nil, err
@@ -707,7 +627,7 @@ func (t *TranscribeVideoAction) Transcribe(page *rod.Page, args TranscribeVideoA
 
 	// Step 1: 获取视频信息
 	t.logger.Info("Step 1: 获取视频信息")
-	videoInfo, err := t.ExtractVideoInfo(page, args.FeedID)
+	videoInfo, err := t.ExtractVideoInfo(args.FeedID, args.XsecToken)
 	if err != nil {
 		return nil, fmt.Errorf("获取视频信息失败: %w", err)
 	}

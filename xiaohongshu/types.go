@@ -196,6 +196,7 @@ func IsVideoNote(noteType string, video *Video) bool {
 // TranscribeVideoArgs 视频转录参数
 type TranscribeVideoArgs struct {
 	FeedID      string // 笔记ID
+	XsecToken   string // 访问令牌
 	MaxFileSize int    // 最大文件大小限制（字节），0表示使用默认值
 	Language    string // 语言代码（如 "zh", "en"），空字符串表示自动检测
 	WithSummary bool   // 是否生成AI摘要

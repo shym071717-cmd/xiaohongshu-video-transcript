@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  xhs-downloader:
+    image: joeanamier/xhs-downloader:latest
+    container_name: xhs-downloader
+    ports:
+      - "5556:5556"
+    command: python main.py api
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - xhs_data:/app/Volume
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  xiaohongshu-mcp:
+    build: .
+    container_name: xiaohongshu-mcp
+    ports:
+      - "18060:18060"
+    environment:
+      - XHS_DOWNLOADER_URL=http://xhs-downloader:5556
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-claude}
+      - LLM_MODEL=${LLM_MODEL}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - TZ=Asia/Shanghai
+    depends_on:
+      xhs-downloader:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./cookies.json:/app/cookies.json:ro
+
+volumes:
+  xhs_data:
+    driver: local

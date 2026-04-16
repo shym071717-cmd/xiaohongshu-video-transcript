@@ -728,7 +728,7 @@ func (s *AppServer) handleTranscribeVideo(ctx context.Context, args map[string]i
 	}
 
 	// 格式化结果
-	transcribeAction := xiaohongshu.NewTranscribeVideoAction(nil, logrus.StandardLogger())
+	transcribeAction := xiaohongshu.NewTranscribeVideoAction(nil, nil, logrus.StandardLogger())
 	formattedResult := transcribeAction.FormatResult(result)
 
 	return &MCPToolResult{

@@ -33,8 +33,8 @@ func NewAppServer(xiaohongshuService *XiaohongshuService) *AppServer {
 	return appServer
 }
 
-// Start 启动服务器
-func (s *AppServer) Start(port string) error {
+// StartHTTP 启动 HTTP 服务器
+func (s *AppServer) StartHTTP(port string) error {
 	s.router = setupRoutes(s)
 
 	s.httpServer = &http.Server{
@@ -67,5 +67,18 @@ func (s *AppServer) Start(port string) error {
 		logrus.Infof("服务器已优雅关闭")
 	}
 
+	return nil
+}
+
+// StartStdio 启动 stdio 服务器（用于 Claude Code 集成）
+func (s *AppServer) StartStdio() error {
+	logrus.Info("启动 stdio 服务器")
+
+	// 使用 stdio transport 运行 MCP 服务器
+	if err := s.mcpServer.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		return err
+	}
+
+	logrus.Info("stdio 服务器已关闭")
 	return nil
 }

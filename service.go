@@ -577,32 +577,22 @@ func withBrowserPage(fn func(*rod.Page) error) error {
 
 // TranscribeVideo 转录视频
 func (s *XiaohongshuService) TranscribeVideo(ctx context.Context, feedID, xsecToken, language string, withSummary bool, maxFileSize int) (*xiaohongshu.TranscribeResult, error) {
-	b := newBrowser()
-	defer b.Close()
-
-	page := b.NewPage()
-	defer page.Close()
-
-	// 导航到视频页面
-	action := xiaohongshu.NewFeedDetailAction(page)
-	if _, err := action.GetFeedDetailWithConfig(ctx, feedID, xsecToken, false, xiaohongshu.DefaultCommentLoadConfig()); err != nil {
-		return nil, fmt.Errorf("访问视频页面失败: %w", err)
-	}
-
-	// 创建转录 action
-	transcriptionConfig := configs.DefaultTranscriptionConfig()
-	transcribeAction := xiaohongshu.NewTranscribeVideoAction(transcriptionConfig, logrus.StandardLogger())
+	// 创建转录 action，使用 XHS-Downloader API 获取视频信息
+	transcriptionConfig := configs.LoadTranscriptionConfigFromEnv()
+	downloaderConfig := configs.DefaultXHSDownloaderConfig()
+	transcribeAction := xiaohongshu.NewTranscribeVideoAction(transcriptionConfig, downloaderConfig, logrus.StandardLogger())
 
 	// 构建参数
 	args := xiaohongshu.TranscribeVideoArgs{
 		FeedID:      feedID,
-		MaxFileSize: maxFileSize,
+		XsecToken:   xsecToken,
+		MaxFileSize: maxFileSize * 1024 * 1024, // 转换为字节
 		Language:    language,
 		WithSummary: withSummary,
 	}
 
 	// 执行转录
-	result, err := transcribeAction.Transcribe(page, args)
+	result, err := transcribeAction.Transcribe(args)
 	if err != nil {
 		return nil, err
 	}
