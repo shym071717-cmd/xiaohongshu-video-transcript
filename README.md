@@ -284,6 +284,28 @@ https://github.com/user-attachments/assets/cc385b6c-422c-489b-a5fc-63e92c695b80
 
 </details>
 
+<details>
+<summary><b>12. 视频转录（transcribe_video）</b></summary>
+
+转录小红书视频笔记的语音内容为文本，并生成 AI 摘要。
+
+**功能说明：**
+
+- 提取视频笔记中的音频并转录为文本
+- 可选生成 AI 摘要，快速了解视频核心内容
+- 支持指定语言，默认自动识别
+- 可限制下载文件大小，避免过大视频占用带宽
+
+**⚠️ 重要提示：**
+
+- 需要先登录才能使用此功能
+- 需要提供 feed_id 和 xsec_token
+- 依赖 XHS-Downloader 解析视频信息
+- 依赖 Groq Whisper API 进行语音识别
+- 摘要生成依赖 LLM（Claude / Minimax 等），为可选功能
+
+</details>
+
 **小红书基础运营知识**
 
 - **标题：（非常重要）小红书要求标题不超过 20 个字**
@@ -438,6 +460,22 @@ Docker 版本会自动：
 
 Windows 遇到问题首先看这里：[Windows 安装指南](./docs/windows_guide.md)
 
+#### 使用 Docker Compose 一键部署（含 xhs-downloader）
+
+如果你需要使用**视频转录**功能，可以通过项目根目录的 `docker-compose.yml` 一键启动 MCP 服务和 [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) 解析服务：
+
+```bash
+# 在项目根目录执行
+docker compose up -d
+```
+
+该配置会自动：
+- 启动 `xhs-downloader` 服务（端口 5556）
+- 启动 `xiaohongshu-mcp` 服务（端口 18060）
+- 自动配置两者之间的网络连接
+
+> 提示：首次启动前，请确保已配置好环境变量（参考下文「环境变量配置」小节），或创建 `.env` 文件。
+
 ### 1.2. 登录
 
 第一次需要手动登录，需要保存小红书的登录状态。
@@ -492,6 +530,20 @@ XHS_PROXY=http://proxy:port go run .
 ```
 
 支持 HTTP/HTTPS/SOCKS5 代理，日志中会自动隐藏代理的认证信息。
+
+### 环境变量配置
+
+如果你使用**视频转录**功能，或希望通过 Docker Compose 部署，需要配置以下环境变量（也可写入 `.env` 文件）：
+
+| 环境变量 | 说明 | 是否必填 |
+|----------|------|----------|
+| `GROQ_API_KEY` | 用于语音识别的 Groq API Key | **是**（视频转录必需） |
+| `LLM_API_KEY` | 用于生成摘要的 LLM API Key | 否 |
+| `LLM_PROVIDER` | 摘要生成服务提供商，如 `claude`、`minimax` | 否 |
+| `XHS_DOWNLOADER_URL` | XHS-Downloader 服务地址，默认 `http://localhost:5556` | 否 |
+| `HTTP_PROXY` | HTTP 代理地址，中国大陆访问 Groq 可能需要 | 否 |
+
+> 完整环境变量示例请参考项目中的 [`.env.example`](./.env.example) 文件。
 
 ## 1.4. 验证 MCP
 
@@ -748,7 +800,7 @@ npx @modelcontextprotocol/inspector
 
 - 使用 MCP Inspector 测试连接
 - 测试 Ping Server 功能验证连接
-- 检查 List Tools 是否返回 13 个工具
+- 检查 List Tools 是否返回 14 个工具
 
 </details>
 
@@ -884,6 +936,10 @@ npx mcporter list xiaohongshu-mcp
 - `favorite_feed` - 收藏/取消收藏（必需：feed_id, xsec_token）
   - `unfavorite`: 是否取消收藏（可选），true 为取消收藏，默认为收藏
 - `user_profile` - 获取用户个人主页信息（必需：user_id, xsec_token）
+- `transcribe_video` - 转录小红书视频笔记的语音内容为文本，并生成 AI 摘要（必需：feed_id, xsec_token）
+  - `language`: 音频语言（可选），默认 `auto` 自动识别
+  - `with_summary`: 是否生成 AI 摘要（可选），默认 `true`
+  - `max_file_size`: 最大下载文件大小限制，单位 MB（可选），默认 `500`
 
 ### 2.4. 使用示例
 
@@ -976,6 +1032,13 @@ npx mcporter list xiaohongshu-mcp
 - 在 **非 Docker 环境** 下，请使用 **本机 IPv4 地址** 访问。
 
 ---
+
+## 第三方引用与致谢
+
+- 本项目基于 [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) 提供视频信息解析能力
+- 使用 [Groq Whisper API](https://groq.com/) 进行语音识别
+- 使用 Anthropic Claude / Minimax 等 LLM 进行摘要生成
+- 基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 规范构建
 
 ## 3. 🌟 实战案例展示 (Community Showcases)
 

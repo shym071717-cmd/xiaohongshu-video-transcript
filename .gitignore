@@ -31,7 +31,7 @@ go.work.sum
 
 # Editor/IDE
 # .idea/
-# .vscode/
+.vscode/
 .claude/
 
 # Build artifacts
@@ -42,3 +42,24 @@ test_*.sh
 
 # Cookies files (contain sensitive login information)
 cookies.json
+
+# 个人配置文件（含敏感信息）
+.mcp.json
+mcporter.json
+config/mcporter.json
+skills/post-to-xhs/config/accounts.json
+
+# 日志文件
+*.log
+
+# 压缩包与备份
+*.zip
+*~
+
+# Docker 运行时数据
+docker/data/
+
+# 本地输出目录
+output/
+tmp/
+temp/

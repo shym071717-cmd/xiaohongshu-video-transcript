@@ -269,6 +269,28 @@ Favorite a note or unfavorite it, with smart detection of current status to avoi
 
 </details>
 
+<details>
+<summary><b>12. Video Transcription (transcribe_video)</b></summary>
+
+Transcribe the speech in a RedNote video note into text and generate an AI summary.
+
+**Feature Description:**
+
+- Extract audio from video notes and transcribe it into text
+- Optionally generate an AI summary to quickly understand the core content
+- Supports specifying the language; defaults to auto-detection
+- Can limit the downloaded file size to avoid excessive bandwidth usage
+
+**⚠️ Important Note:**
+
+- Must login first to use this feature
+- Requires feed_id and xsec_token
+- Depends on XHS-Downloader for video information parsing
+- Depends on Groq Whisper API for speech recognition
+- AI summary generation relies on an LLM (Claude / Minimax, etc.) and is optional
+
+</details>
+
 **RedNote Basic Operation Knowledge**
 
 - **Title: (Very Important) RedNote requires titles to not exceed 20 characters**
@@ -421,6 +443,22 @@ For detailed instructions, please refer to: [Docker Deployment Guide](./docker/R
 
 For Windows issues, check here first: [Windows Installation Guide](./docs/windows_guide.md)
 
+#### One-Click Deployment with Docker Compose (includes xhs-downloader)
+
+If you need the **video transcription** feature, you can start both the MCP service and the [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) parsing service using the `docker-compose.yml` in the project root:
+
+```bash
+# Run in the project root directory
+docker compose up -d
+```
+
+This configuration will automatically:
+- Start the `xhs-downloader` service (port 5556)
+- Start the `xiaohongshu-mcp` service (port 18060)
+- Configure the network connection between them
+
+> Tip: Before the first startup, make sure the required environment variables are configured (see the "Environment Variables" section below), or create a `.env` file.
+
 ### 1.2. Login
 
 First time requires manual login to save RedNote login status.
@@ -461,6 +499,20 @@ go run .
 # Non-headless mode, with browser interface
 go run . -headless=false
 ```
+
+### Environment Variables
+
+If you use the **video transcription** feature or deploy via Docker Compose, configure the following environment variables (or put them in a `.env` file):
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `GROQ_API_KEY` | Groq API Key for speech recognition | **Yes** (required for transcription) |
+| `LLM_API_KEY` | LLM API Key for summary generation | No |
+| `LLM_PROVIDER` | Summary provider, e.g. `claude`, `minimax` | No |
+| `XHS_DOWNLOADER_URL` | XHS-Downloader service URL, default `http://localhost:5556` | No |
+| `HTTP_PROXY` | HTTP proxy address; may be needed for mainland China access to Groq | No |
+
+> For a full example, please refer to [`.env.example`](./.env.example) in the repository.
 
 ## 1.4. Verify MCP
 
@@ -672,7 +724,7 @@ Usage steps:
 
 - Use MCP Inspector to test connection
 - Test Ping Server functionality to verify connection
-- Check if List Tools returns 13 tools
+- Check if List Tools returns 14 tools
 
 </details>
 
@@ -785,6 +837,10 @@ After successful connection, you can use the following MCP tools:
 - `favorite_feed` - Favorite / unfavorite a note (required: feed_id, xsec_token)
   - `unfavorite`: Whether to unfavorite (optional), true to unfavorite, default is favorite
 - `user_profile` - Get user profile information (required: user_id, xsec_token)
+- `transcribe_video` - Transcribe a RedNote video note's speech to text and generate an AI summary (required: feed_id, xsec_token)
+  - `language`: Audio language (optional), default `auto`
+  - `with_summary`: Whether to generate an AI summary (optional), default `true`
+  - `max_file_size`: Maximum download file size limit in MB (optional), default `500`
 
 ### 2.4. Usage Examples
 
@@ -866,6 +922,13 @@ Use xiaohongshu-mcp's video publishing feature.
 - In a **non-Docker environment**, please use your **local IPv4 address** to access.
 
 ---
+
+## Third-Party Acknowledgments
+
+- This project uses [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) for video information parsing
+- Uses [Groq Whisper API](https://groq.com/) for speech recognition
+- Uses Anthropic Claude / Minimax and other LLMs for summary generation
+- Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) specification
 
 ## 3. 🌟 Community Showcases
 

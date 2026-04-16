@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "xiaohongshu-mcp": {
+      "command": "xiaohongshu-mcp",
+      "args": ["stdio"],
+      "env": {
+        "GROQ_API_KEY": "<YOUR_GROQ_API_KEY>",
+        "LLM_API_KEY": "<YOUR_LLM_API_KEY>",
+        "LLM_PROVIDER": "claude",
+        "LLM_MODEL": "<YOUR_LLM_MODEL>",
+        "HTTP_PROXY": "<YOUR_HTTP_PROXY>",
+        "XHS_DOWNLOADER_URL": "http://localhost:5556"
+      }
+    }
+  }
+}

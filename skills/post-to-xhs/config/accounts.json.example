@@ -1,0 +1,10 @@
+{
+  "default_account": "default",
+  "accounts": {
+    "default": {
+      "alias": "默认账号",
+      "profile_dir": "<YOUR_CHROME_PROFILE_PATH>",
+      "created_at": null
+    }
+  }
+}
