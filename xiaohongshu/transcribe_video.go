@@ -121,14 +121,26 @@ func (t *TranscribeVideoAction) DownloadVideo(videoURL, feedID string, maxSize i
 	if err != nil {
 		return "", fmt.Errorf("创建临时文件失败: %w", err)
 	}
-	defer file.Close()
+
+	// 是否需要清理：下载失败时由 defer 关闭并删除文件，成功时 caller 负责删除
+	needCleanup := true
+	defer func() {
+		if needCleanup {
+			file.Close()
+			os.Remove(videoPath)
+		}
+	}()
 
 	// 流式下载并检查大小
 	written, err := io.Copy(file, &sizeLimiter{reader: resp.Body, limit: int64(maxSize)})
 	if err != nil {
-		os.Remove(videoPath)
 		return "", fmt.Errorf("保存视频失败: %w", err)
 	}
+
+	// 下载成功，关闭文件并将清理责任交给 caller
+	needCleanup = false
+	file.Close()
+	return videoPath, nil
 
 	t.logger.WithField("size", written).Info("视频下载完成")
 	return videoPath, nil
@@ -215,6 +227,9 @@ func (t *TranscribeVideoAction) SplitAudio(audioPath string) ([]string, error) {
 	}
 
 	// 计算每个切片的时长（目标每个切片约 15MB）
+	if info.Size() == 0 {
+		return nil, fmt.Errorf("音频文件大小为 0，无法切片")
+	}
 	chunkDuration := int(duration * int(defaultMaxAudioChunk) / int(info.Size()))
 	if chunkDuration < 30 {
 		chunkDuration = 30 // 最少 30 秒
