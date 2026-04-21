@@ -1,6 +1,6 @@
 # xiaohongshu-video-transcript
 
-基于 [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 增强的小红书 MCP 服务器，核心新增**视频语音转录与 AI 结构化分析**功能。
+基于 [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 和 [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) 开发的增强型小红书 MCP 服务器，核心新增**视频语音转录与 AI 结构化分析**功能。
 
 ## 核心特性
 
