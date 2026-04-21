@@ -12,7 +12,7 @@
 
 ## 基于原项目
 
-本项目在 [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 基础上，新增了视频转录相关功能。原项目的 LICENSE（MIT）和作者版权信息完整保留。
+本项目在 [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 和 [XHS-Downloader](https://github.com/joeanamier/xhs-downloader) 基础上，新增了视频转录相关功能。原项目的 LICENSE（MIT）和作者版权信息完整保留。
 
 ---
 
