@@ -137,7 +137,7 @@ docker compose up -d
 
 | 提供商 | 获取地址 | 推荐模型 | 特点 |
 |--------|----------|----------|------|
-| **Minimax** | [platform.minimaxi.com](https://platform.minimaxi.com) | `abab6.5s-chat` | 经济高效，推荐 |
+| **Minimax** | [platform.minimaxi.com](https://platform.minimaxi.com) | `Minimax-2.7` | 经济高效，推荐 |
 | **Claude** | [console.anthropic.com](https://console.anthropic.com) | `claude-sonnet-4-6` | 质量高，成本高 |
 | **OpenAI** | [platform.openai.com](https://platform.openai.com) | `gpt-4o` | 通用性强 |
 
@@ -315,7 +315,7 @@ https://www.xiaohongshu.com/explore/abc123?xsec_token=xxx
 **A:** 使用 `http://host.docker.internal:18060/mcp` 替代 `localhost`。
 
 **Q:** 视频转录报 403 Forbidden？
-**A:** Groq API Key 已失效，访问 https://console.groq.com 获取新 Key。
+**A:** Groq API Key 已失效，或网络问题无法正常调用API，请调整网络后重试，或访问 https://console.groq.com 获取新 Key。
 
 **Q:** 视频解析报错"该作品不是视频类型"？
 **A:** XHS-Downloader cookies 过期，需要重新登录小红书网页版并导出 cookies。
