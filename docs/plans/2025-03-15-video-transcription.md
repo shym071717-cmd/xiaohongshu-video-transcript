@@ -171,7 +171,7 @@ git commit -m "feat(types): add VideoInfo and TranscribeResult types"
 
 **Files:**
 - Create: `xiaohongshu/transcribe_video.go`
-- 参考: `~/.agent-reach/tools/xiaoyuzhou/transcribe.sh`
+- 参考: `/path/to/transcribe.sh`
 
 - [ ] **Step 1: 创建文件并添加基础结构和导入**
 

@@ -236,7 +236,7 @@ func (t *TranscribeVideoAction) extractAudio(videoPath, feedID string) (string, 
 
 #### Step 4: 语音识别
 
-参考小宇宙播客实现：`~/.agent-reach/tools/xiaoyuzhou/transcribe.sh`
+参考小宇宙播客实现：`/path/to/transcribe.sh`
 
 ```go
 func (t *TranscribeVideoAction) transcribeAudio(audioPath string, language string) (string, error) {
@@ -595,7 +595,7 @@ func checkFileSize(path string, maxSize int) error {
 
 ## 11. 参考资源
 
-1. **小宇宙转录脚本**: `~/.agent-reach/tools/xiaoyuzhou/transcribe.sh`
+1. **小宇宙转录脚本**: `/path/to/transcribe.sh`
 2. **XHS-Downloader**: https://github.com/JoeanAmier/XHS-Downloader
 3. **Groq Whisper API**: https://console.groq.com/docs/speech-text
-4. **YouTube/Bilibili 转录**: `~/.claude/skills/agent-reach/references/media-platforms.md`
+4. **YouTube/Bilibili 转录**: `/path/to/media-platforms.md`

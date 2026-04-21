@@ -139,8 +139,9 @@ func (t *TranscribeVideoAction) DownloadVideo(videoURL, feedID string, maxSize i
 
 	// 下载成功，关闭文件并将清理责任交给 caller
 	needCleanup = false
-	file.Close()
-	return videoPath, nil
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("关闭文件失败: %w", err)
+	}
 
 	t.logger.WithField("size", written).Info("视频下载完成")
 	return videoPath, nil
@@ -230,7 +231,7 @@ func (t *TranscribeVideoAction) SplitAudio(audioPath string) ([]string, error) {
 	if info.Size() == 0 {
 		return nil, fmt.Errorf("音频文件大小为 0，无法切片")
 	}
-	chunkDuration := int(duration * int(defaultMaxAudioChunk) / int(info.Size()))
+	chunkDuration := int(float64(duration) * float64(defaultMaxAudioChunk) / float64(info.Size()))
 	if chunkDuration < 30 {
 		chunkDuration = 30 // 最少 30 秒
 	}
@@ -313,7 +314,9 @@ func (t *TranscribeVideoAction) TranscribeAudio(audioPath, language string) (str
 
 		// 删除临时切片文件（如果不是原文件）
 		if chunk != audioPath {
-			os.Remove(chunk)
+			if err := os.Remove(chunk); err != nil {
+				t.logger.WithError(err).WithField("path", chunk).Warn("删除临时切片文件失败")
+			}
 		}
 	}
 
@@ -389,13 +392,21 @@ func (t *TranscribeVideoAction) callGroqWhisper(audioPath, apiKey, language stri
 	}
 
 	// 添加其他字段
-	w.WriteField("model", "whisper-large-v3")
-	if language != "" && language != "auto" {
-		w.WriteField("language", language)
+	if err := w.WriteField("model", "whisper-large-v3"); err != nil {
+		return "", fmt.Errorf("构建表单失败: %w", err)
 	}
-	w.WriteField("response_format", "text")
+	if language != "" && language != "auto" {
+		if err := w.WriteField("language", language); err != nil {
+			return "", fmt.Errorf("构建表单失败: %w", err)
+		}
+	}
+	if err := w.WriteField("response_format", "text"); err != nil {
+		return "", fmt.Errorf("构建表单失败: %w", err)
+	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("关闭表单写入器失败: %w", err)
+	}
 
 	// 创建请求
 	req, err := http.NewRequest("POST", groqWhisperAPIEndpoint, &b)
@@ -449,24 +460,53 @@ func (t *TranscribeVideoAction) GenerateSummary(transcript, title string) (strin
 	}
 }
 
-// buildSummaryPrompt 构建摘要提示词
+// buildSummaryPrompt 构建结构化分析提示词（摘要 + 知识框架 + 行动建议）
 func buildSummaryPrompt(title, transcript string) string {
-	return fmt.Sprintf(`请为以下视频内容生成摘要：
+	return fmt.Sprintf(`你是一位专业的内容分析师。请对以下视频转录内容进行深度分析，生成结构化报告。
 
 视频标题: %s
 
 转录内容:
 %s
 
-请生成以下格式的摘要:
+请严格按以下格式输出，不要添加任何额外说明：
+
 ### 核心观点
-(一句话总结视频核心内容)
+用一句话精准概括视频核心内容。
 
 ### 关键要点
-1. (要点1)
-2. (要点2)
-3. (要点3)
+1. （要点1，包含具体论据或数据支撑）
+2. （要点2，包含具体论据或数据支撑）
+3. （要点3，包含具体论据或数据支撑）
+
+### 知识框架
+将视频内容组织为层级知识结构，例如：
+- 主题A
+  - 子主题1：具体内容
+  - 子主题2：具体内容
+- 主题B
+  - 子主题1：具体内容
+
+### 行动建议
+基于视频内容，给出2-5条具体、可执行的步骤或学习建议。
 `, title, transcript)
+}
+
+// buildFormatTranscriptPrompt 构建转录文本格式化提示词
+func buildFormatTranscriptPrompt(transcript string) string {
+	return fmt.Sprintf(`你是一位专业的文本编辑。请对以下语音识别转录文本进行排版优化：
+
+1. 补充缺失的标点符号（逗号、句号、问号、感叹号等）
+2. 根据语义进行合理分段，每段不宜过长
+3. 为每段添加简洁的小标题（使用 #### 级别）
+4. 修正明显的语音识别错误（如将同音错别字修正为正确术语）
+5. 保持原文意思不变，只做排版和标点优化
+
+原文：
+%s
+
+请直接输出格式化后的文本，不要添加任何额外说明或前言。
+`, transcript)
 }
 
 // Minimax API 请求和响应结构
@@ -610,6 +650,28 @@ func (t *TranscribeVideoAction) callClaudeAPI(apiKey, model, baseURL, prompt str
 	return result.Content[0].Text, nil
 }
 
+// FormatTranscript 使用 LLM 格式化转录文本（添加标点、分段、小标题）
+func (t *TranscribeVideoAction) FormatTranscript(transcript string) (string, error) {
+	provider, apiKey, model, baseURL := t.config.GetLLMConfig()
+
+	if apiKey == "" {
+		return "", fmt.Errorf("LLM API Key 未配置")
+	}
+
+	prompt := buildFormatTranscriptPrompt(transcript)
+
+	switch provider {
+	case configs.LLMProviderMinimax:
+		return t.callMinimaxAPI(apiKey, model, baseURL, prompt)
+	case configs.LLMProviderClaude:
+		return t.callClaudeAPI(apiKey, model, baseURL, prompt)
+	case configs.LLMProviderOpenAI:
+		return t.callOpenAIAPI(apiKey, model, baseURL, prompt)
+	default:
+		return "", fmt.Errorf("不支持的 LLM 提供商: %s", provider)
+	}
+}
+
 // callOpenAIAPI 调用 OpenAI API（占位符）
 func (t *TranscribeVideoAction) callOpenAIAPI(apiKey, model, baseURL, prompt string) (string, error) {
 	return "", fmt.Errorf("OpenAI API 支持尚未实现")
@@ -672,9 +734,9 @@ func (t *TranscribeVideoAction) Transcribe(args TranscribeVideoArgs) (*Transcrib
 	}
 	result.Transcript = transcript
 
-	// Step 5: AI 摘要（可选）
+	// Step 5: AI 摘要与结构化分析（可选）
 	if args.WithSummary {
-		t.logger.Info("Step 5: 生成AI摘要")
+		t.logger.Info("Step 5: 生成AI摘要与结构化分析")
 		summary, err := t.GenerateSummary(transcript, videoInfo.Title)
 		if err != nil {
 			t.logger.WithError(err).Warn("生成摘要失败，仅返回转录文本")
@@ -682,6 +744,18 @@ func (t *TranscribeVideoAction) Transcribe(args TranscribeVideoArgs) (*Transcrib
 		} else {
 			result.Summary = summary
 		}
+
+		// Step 6: 格式化转录文本（可选，依赖摘要步骤）
+		t.logger.Info("Step 6: 格式化转录文本")
+		formatted, err := t.FormatTranscript(transcript)
+		if err != nil {
+			t.logger.WithError(err).Warn("格式化转录文本失败，使用原始转录")
+			result.FormattedTranscript = transcript
+		} else {
+			result.FormattedTranscript = formatted
+		}
+	} else {
+		result.FormattedTranscript = transcript
 	}
 
 	return result, nil
@@ -706,7 +780,11 @@ func (t *TranscribeVideoAction) FormatResult(result *TranscribeResult) string {
 	}
 
 	sb.WriteString("\n## 完整转录\n\n")
-	sb.WriteString(result.Transcript)
+	if result.FormattedTranscript != "" {
+		sb.WriteString(result.FormattedTranscript)
+	} else {
+		sb.WriteString(result.Transcript)
+	}
 
 	return sb.String()
 }

@@ -179,13 +179,14 @@ type VideoInfo struct {
 
 // TranscribeResult 转录结果
 type TranscribeResult struct {
-	Title         string
-	Author        string
-	Duration      int
-	Transcript    string
-	Summary       string
-	SourceURL     string
-	TranscribedAt string
+	Title             string
+	Author            string
+	Duration          int
+	Transcript        string
+	FormattedTranscript string // 格式化后的转录文本（带标点、分段、小标题）
+	Summary           string
+	SourceURL         string
+	TranscribedAt     string
 }
 
 // IsVideoNote 检查笔记是否为视频类型

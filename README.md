@@ -287,14 +287,29 @@ https://github.com/user-attachments/assets/cc385b6c-422c-489b-a5fc-63e92c695b80
 <details>
 <summary><b>12. 视频转录（transcribe_video）</b></summary>
 
-转录小红书视频笔记的语音内容为文本，并生成 AI 摘要。
+转录小红书视频笔记的语音内容为文本，并生成 AI 摘要与结构化分析。
 
 **功能说明：**
 
 - 提取视频笔记中的音频并转录为文本
-- 可选生成 AI 摘要，快速了解视频核心内容
+- 可选生成 AI 摘要与结构化分析，快速了解视频核心内容
 - 支持指定语言，默认自动识别
 - 可限制下载文件大小，避免过大视频占用带宽
+
+**输出格式：**
+
+转录结果包含以下内容：
+
+1. **内容摘要**
+   - 核心观点：一句话总结视频主旨
+   - 关键要点：分点列出重要内容
+
+2. **结构化分析**
+   - 知识框架：层级化的知识结构
+   - 行动建议：可执行的步骤或学习建议
+
+3. **完整转录**
+   - 带标点符号、合理分段、添加小标题的格式化文本
 
 **⚠️ 重要提示：**
 
@@ -303,6 +318,7 @@ https://github.com/user-attachments/assets/cc385b6c-422c-489b-a5fc-63e92c695b80
 - 依赖 XHS-Downloader 解析视频信息
 - 依赖 Groq Whisper API 进行语音识别
 - 摘要生成依赖 LLM（Claude / Minimax 等），为可选功能
+- 推荐使用 Minimax 等经济型模型处理摘要，节省主模型 token
 
 </details>
 
@@ -544,6 +560,62 @@ XHS_PROXY=http://proxy:port go run .
 | `HTTP_PROXY` | HTTP 代理地址，中国大陆访问 Groq 可能需要 | 否 |
 
 > 完整环境变量示例请参考项目中的 [`.env.example`](./.env.example) 文件。
+
+### 视频转录配置详解
+
+如果你使用**视频转录**功能，需要额外配置以下 API Key。以下是面向 AI Agent 的配置指引：
+
+#### Groq API Key（语音识别必需）
+
+Groq 提供高速、低成本的 Whisper 语音识别 API，用于将视频音频转录为文本。
+
+**获取步骤**：
+1. 访问 [Groq 控制台](https://console.groq.com)
+2. 注册或登录账号
+3. 左侧菜单点击 "API Keys" → "Create API Key"
+4. 复制生成的 Key（以 `gsk_` 开头）
+5. 写入项目根目录 `.env` 文件：`GROQ_API_KEY=gsk_你的密钥`
+
+> **提示**：Groq 提供免费额度，对于个人使用通常足够。如在中国大陆，可能需要配置 `HTTP_PROXY` 才能正常访问。
+
+#### LLM API Key（摘要生成可选）
+
+转录完成后，可选择使用 LLM 生成内容摘要和结构化分析。
+
+**支持的提供商**：
+
+| 提供商 | 获取地址 | 推荐模型 | 特点 |
+|--------|----------|----------|------|
+| **Minimax** | [platform.minimaxi.com](https://platform.minimaxi.com) | `abab6.5s-chat` | 经济高效，适合文本处理 |
+| **Claude** | [console.anthropic.com](https://console.anthropic.com) | `claude-sonnet-4-6` | 质量高，成本高 |
+| **OpenAI** | [platform.openai.com](https://platform.openai.com) | `gpt-4o` | 通用性强 |
+
+**为什么推荐使用 Minimax？**
+
+视频转录后的**摘要生成、结构化分析、文本格式化**属于"文本处理类简单任务"——不需要复杂的推理能力，但需要消耗大量 token 来处理长文本。
+
+使用 Minimax 等经济型模型处理这些任务，可以：
+- **大幅节省主模型 token**：让 Claude / GPT-4 专注于复杂推理，而不是长文本排版
+- **降低成本**：Minimax 的 token 价格显著低于 Claude / GPT-4
+- **速度更快**：经济型模型响应速度通常更快
+- **质量足够**：对于文本分段、添加标点、提取要点等任务，Minimax 完全胜任
+
+**配置示例**（使用 Minimax）：
+```bash
+# .env
+GROQ_API_KEY=gsk_你的Groq密钥
+LLM_PROVIDER=minimax
+LLM_API_KEY=你的Minimax密钥
+LLM_MODEL=abab6.5s-chat
+HTTP_PROXY=http://127.0.0.1:你的代理端口  # 根据你的代理软件修改
+```
+
+#### 输出目录配置
+
+转录结果默认保存到 `./output/` 目录。如需修改：
+```bash
+TRANSCRIBE_OUTPUT_DIR=/path/to/your/output/dir
+```
 
 ## 1.4. 验证 MCP
 
@@ -895,7 +967,45 @@ npx mcporter list xiaohongshu-mcp
 
 </details>
 
-### 2.3. 可用 MCP 工具
+### 2.3. Claude Skill 使用（视频转录工作流自动化）
+
+本项目内置了 `xhs-transcribe` Claude Skill，可一键完成小红书视频转录的完整工作流，适合需要频繁转录视频的用户。
+
+**Skill 功能**：
+- 前置健康检查（环境、依赖、API Key 有效性）
+- 按需自动启动 XHS-Downloader 和 MCP 服务
+- 执行语音转录（Groq Whisper）
+- AI 生成结构化分析（摘要 + 知识框架 + 行动建议）
+- 自动保存结果到本地文件
+- 转录完成后自动关闭由 Skill 启动的服务
+
+**安装步骤**：
+
+1. 将 `skills/xhs-transcribe/` 目录复制到你的 Claude Code skills 目录：
+   ```bash
+   # macOS/Linux
+   cp -r skills/xhs-transcribe ~/.claude/skills/
+
+   # Windows
+   xcopy /E /I skills\xhs-transcribe %USERPROFILE%\.claude\skills\xhs-transcribe
+   ```
+
+2. 确保已配置好环境变量（`.env` 文件）：
+   ```bash
+   GROQ_API_KEY=gsk_你的密钥
+   LLM_PROVIDER=minimax
+   LLM_API_KEY=你的Minimax密钥
+   HTTP_PROXY=http://127.0.0.1:你的代理端口  # 按需配置
+   ```
+
+3. 在 Claude Code 中使用自然语言触发：
+   ```
+   转录这个小红书视频：https://www.xiaohongshu.com/explore/xxx
+   ```
+
+> **提示**：Skill 遵循"不常驻后台"原则——只在转录期间启动依赖服务，完成后自动关闭，节省系统资源。如果服务已手动启动，Skill 不会关闭它们。
+
+### 2.4. 可用 MCP 工具
 
 连接成功后，可使用以下 MCP 工具：
 

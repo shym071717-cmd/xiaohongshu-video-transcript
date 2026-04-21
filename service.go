@@ -26,6 +26,35 @@ func NewXiaohongshuService() *XiaohongshuService {
 	return &XiaohongshuService{}
 }
 
+// validateScheduleTime 解析并校验定时发布时间
+func validateScheduleTime(scheduleAt string) (*time.Time, error) {
+	if scheduleAt == "" {
+		return nil, nil
+	}
+
+	t, err := time.Parse(time.RFC3339, scheduleAt)
+	if err != nil {
+		return nil, fmt.Errorf("定时发布时间格式错误，请使用 ISO8601 格式: %v", err)
+	}
+
+	// 校验定时发布时间范围：1小时至14天
+	now := time.Now()
+	minTime := now.Add(1 * time.Hour)
+	maxTime := now.Add(14 * 24 * time.Hour)
+
+	if t.Before(minTime) {
+		return nil, fmt.Errorf("定时发布时间必须至少在1小时后，当前设置: %s，最早可选: %s",
+			t.Format("2006-01-02 15:04"), minTime.Format("2006-01-02 15:04"))
+	}
+	if t.After(maxTime) {
+		return nil, fmt.Errorf("定时发布时间不能超过14天，当前设置: %s，最晚可选: %s",
+			t.Format("2006-01-02 15:04"), maxTime.Format("2006-01-02 15:04"))
+	}
+
+	logrus.Infof("设置定时发布时间: %s", t.Format("2006-01-02 15:04"))
+	return &t, nil
+}
+
 // PublishRequest 发布请求
 type PublishRequest struct {
 	Title      string   `json:"title" binding:"required"`
@@ -185,29 +214,9 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 	}
 
 	// 解析定时发布时间
-	var scheduleTime *time.Time
-	if req.ScheduleAt != "" {
-		t, err := time.Parse(time.RFC3339, req.ScheduleAt)
-		if err != nil {
-			return nil, fmt.Errorf("定时发布时间格式错误，请使用 ISO8601 格式: %v", err)
-		}
-
-		// 校验定时发布时间范围：1小时至14天
-		now := time.Now()
-		minTime := now.Add(1 * time.Hour)
-		maxTime := now.Add(14 * 24 * time.Hour)
-
-		if t.Before(minTime) {
-			return nil, fmt.Errorf("定时发布时间必须至少在1小时后，当前设置: %s，最早可选: %s",
-				t.Format("2006-01-02 15:04"), minTime.Format("2006-01-02 15:04"))
-		}
-		if t.After(maxTime) {
-			return nil, fmt.Errorf("定时发布时间不能超过14天，当前设置: %s，最晚可选: %s",
-				t.Format("2006-01-02 15:04"), maxTime.Format("2006-01-02 15:04"))
-		}
-
-		scheduleTime = &t
-		logrus.Infof("设置定时发布时间: %s", t.Format("2006-01-02 15:04"))
+	scheduleTime, err := validateScheduleTime(req.ScheduleAt)
+	if err != nil {
+		return nil, err
 	}
 
 	// 构建发布内容
@@ -277,29 +286,9 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
 	}
 
 	// 解析定时发布时间
-	var scheduleTime *time.Time
-	if req.ScheduleAt != "" {
-		t, err := time.Parse(time.RFC3339, req.ScheduleAt)
-		if err != nil {
-			return nil, fmt.Errorf("定时发布时间格式错误，请使用 ISO8601 格式: %v", err)
-		}
-
-		// 校验定时发布时间范围：1小时至14天
-		now := time.Now()
-		minTime := now.Add(1 * time.Hour)
-		maxTime := now.Add(14 * 24 * time.Hour)
-
-		if t.Before(minTime) {
-			return nil, fmt.Errorf("定时发布时间必须至少在1小时后，当前设置: %s，最早可选: %s",
-				t.Format("2006-01-02 15:04"), minTime.Format("2006-01-02 15:04"))
-		}
-		if t.After(maxTime) {
-			return nil, fmt.Errorf("定时发布时间不能超过14天，当前设置: %s，最晚可选: %s",
-				t.Format("2006-01-02 15:04"), maxTime.Format("2006-01-02 15:04"))
-		}
-
-		scheduleTime = &t
-		logrus.Infof("设置定时发布时间: %s", t.Format("2006-01-02 15:04"))
+	scheduleTime, err := validateScheduleTime(req.ScheduleAt)
+	if err != nil {
+		return nil, err
 	}
 
 	// 构建发布内容

@@ -226,7 +226,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
 	}
 
 	c.Set("account", "ai-report")
-	respondSuccess(c, map[string]any{"data": result}, "result.Message")
+	respondSuccess(c, map[string]any{"data": result}, "获取用户主页成功")
 }
 
 // postCommentHandler 发表评论到Feed
